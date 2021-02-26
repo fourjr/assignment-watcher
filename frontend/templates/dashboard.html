@@ -1,0 +1,391 @@
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assignment Watcher</title>
+    <script>
+        let googleLoggedIn = true;
+        let slsLogin = {{ slsLoginStr|safe }};
+        let eventListeners = {{ eventListeners|safe }};
+        document.addEventListener('DOMContentLoaded', () => {
+            if (slsLogin.username) {
+                document.getElementById("sls-login-btn").style.display = "none";
+            }
+            else {
+                document.getElementById("sls-synced").style.display = "none";
+            }
+
+            for (let i of eventListeners.google) {
+                let folder_url = `https://drive.google.com/drive/folders/${i.folder_id}`
+                createNewGoogleInput(i.event, folder_url)
+            }
+            for (let i of eventListeners.sls) {
+                createNewSLSInput(i.event)
+            }
+        }, false);
+
+        // The following encryption functions were obtained from the SLS page
+        // to ensure that passwords are encrypted before saved.
+        // As the PUBLIC_KEY is directly from SLS, and we have no
+        // way of obtaining the PRIVATE_KEY, the server does not
+        // know your password at any stage in the process.
+
+        function str2ab (str) {
+            let buf = new ArrayBuffer(str.length);
+            let bufView = new Uint8Array(buf);
+            for (let i = 0, strLen = str.length; i < strLen; i++) {
+            bufView[i] = str.charCodeAt(i);
+            }
+            return buf;
+        }
+        function str2ba (str) {
+            let ba = new Uint8Array(str.length);
+
+            for (let i = 0; i < str.length; i += 1) {
+                ba[i] = str.charCodeAt(i);
+            }
+
+            return ba;
+        }
+
+        function ab2str (buf) {
+            return String.fromCharCode.apply(null, new Uint8Array(buf));
+        }
+
+        async function encrypt(message, publicKey) {
+            let encoded = str2ba(message);
+            let binaryString = window.atob(publicKey);
+            let arrayBuffer = str2ab(binaryString);
+            const key = await window.crypto.subtle.importKey(
+                "spki",
+                arrayBuffer,
+                {
+                name: "RSA-OAEP",
+                hash: "SHA-256"
+                },
+                true,
+                ["encrypt"]
+            )
+            const ciphertext = await window.crypto.subtle.encrypt(
+                {
+                    name: "RSA-OAEP",
+                    // MS Edge need this specific field in encryption (error 80700011)
+                    hash: { name: "SHA-256" }
+                },
+                key,
+                encoded
+            )
+            binaryString = this.ab2str(ciphertext);
+            // base64 encode the string
+            return window.btoa(binaryString);
+        }
+
+        const publicKey = "{{ rsaPublicKey }}";
+        function triggerSLSLogin() {
+            const username = document.getElementById("sls-username").value
+            const password = document.getElementById("sls-password").value
+
+            if (username != "" && password != "") {
+                encrypt(password, publicKey).then((encrypted) => {
+                    console.log(encrypted);
+                    fetch("/login/sls", { method: "POST", mode: "same-origin",  cache: "no-cache", body: JSON.stringify({ username: username, password: encrypted }), headers: {
+                        "Content-Type": "application/json"
+                    }}).then((resp) => {
+                        if (resp.status == 204) {
+                            document.getElementById("sls-synced").style.display = "block";
+                            document.getElementById("sls-synced").innerHTML = `SLS logged in as: ${username}`
+                            document.getElementById("sls-login-btn").style.display = "none";
+                            document.getElementById("sls-login").style.display = "none";
+                            alert("Valid credentials. SLS Login saved.")
+                        }
+                        else if (resp.status == 403) {
+                            alert("Invalid credentials.");
+                        }
+                        else {
+                            alert("Server error. Try again later.");
+                        }
+                    })
+                })
+            }
+            else {
+                alert("Fill in username and password");
+            }
+        }
+        let googleOptions = ["create", "edit", "move", "rename", "delete", "restore", "permissionChange", "comment", "dlpChange", "reference", "settingsChange"];
+        let slsOptions = ["NEW_ASSIGNMENT"];
+
+        function createNewGoogleInput(event, folder_url) {
+            // <div class="google-watch" id="g-watch-0">
+            //     <select class="google-watch-sel" autocomplete="off">
+            //         <option selected="selected" disabled="true">Select Event</option>
+            //         <option>create</option>
+            //         <option>edit</option>
+            //         <option>move</option>
+            //         <option>rename</option>
+            //         <option>delete</option>
+            //         <option>restore</option>
+            //         <option>permissionChange</option>
+            //         <option>comment</option>
+            //         <option>dlpChange</option>
+            //         <option>reference</option>
+            //         <option>settingsChange</option>
+            //     </select>
+            //     <input type="text" placeholder="Folder URL" autocomplete="off">
+            //     <button onclick="removeGoogleInput()">-</button>
+            // </div>
+
+            let currId = Math.max(...new Array(...document.getElementsByClassName("google-watch")).map(i => parseInt(i.id.replace("g-watch-", ""))), 0) + 1;
+            let elem = document.createElement("div");
+            elem.setAttribute("class", "google-watch");
+            elem.setAttribute("id", `g-watch-${currId}`);
+
+            let select = document.createElement("select")
+            select.setAttribute("class", "google-watch-sel");
+            select.setAttribute("id", `g-watch-sel-${currId}`);
+            select.setAttribute("autocomplete", "off");
+
+            let allSelected = new Array(...document.getElementsByClassName("google-watch-sel")).map(i => i.value);
+            let allInputs = new Array(...document.getElementsByClassName("google-watch-input")).map(i => i.value);
+            if (allSelected.includes("Select Event") || allInputs.includes("")) {
+                return false;
+            }
+
+            let oelem = document.createElement("option");
+            oelem.setAttribute("class", "google-watch-option");
+
+            if (!event) {
+                oelem.setAttribute("selected", "selected");
+            }
+            oelem.setAttribute("disabled", "true");
+            oelem.appendChild(document.createTextNode("Select Event"));
+            select.appendChild(oelem);
+
+            for (let o of googleOptions) {
+                oelem = document.createElement("option");
+                oelem.setAttribute("class", "google-watch-option");
+                oelem.appendChild(document.createTextNode(o));
+                if (event == o) {
+                    oelem.setAttribute("selected", "selected");
+                }
+                select.appendChild(oelem);
+            }
+
+            elem.appendChild(select);
+
+            ielem = document.createElement("input");
+            ielem.setAttribute("class", "google-watch-input");
+            ielem.setAttribute("type", "text");
+            ielem.setAttribute("placeholder", "Folder URL");
+            ielem.setAttribute("autocomplete", "off");
+            if (folder_url) {
+                ielem.setAttribute("value", folder_url);
+            }
+            elem.appendChild(ielem);
+
+            let but = document.createElement("button");
+            but.setAttribute("onclick", `removeGoogleInput(${currId})`);
+            but.appendChild(document.createTextNode("-"));
+            elem.appendChild(but)
+
+            document.getElementById("g-watch-header").appendChild(elem);
+            return false;
+        }
+
+        function removeGoogleInput(id) {
+            document.getElementById(`g-watch-${id}`).remove()
+        }
+
+        function createNewSLSInput(event) {
+            if (!slsLogin.username) {
+                alert("SLS not logged in, unable to create new SLS");
+                return false;
+            }
+            let currId = Math.max(...new Array(...document.getElementsByClassName("sls-watch")).map(i => parseInt(i.id.replace("sls-watch-", ""))), 0) + 1;
+            let elem = document.createElement("div");
+            elem.setAttribute("class", "sls-watch");
+            elem.setAttribute("id", `sls-watch-${currId}`);
+
+            let select = document.createElement("select")
+            select.setAttribute("class", "sls-watch-sel");
+            select.setAttribute("id", `sls-watch-sel-${currId}`);
+            select.setAttribute("autocomplete", "off");
+            select.setAttribute("onchange", `refreshSLSInputs()`);
+
+            let allSelected = new Array(...document.getElementsByClassName("sls-watch-sel")).map(i => i.value);
+
+            if (allSelected.includes("Select Event")) {
+                return false;
+            }
+
+            let oelem = document.createElement("option");
+            oelem.setAttribute("class", "sls-watch-option");
+            if (!event) {
+                oelem.setAttribute("selected", "selected");
+            }
+            oelem.setAttribute("disabled", "true");
+            oelem.appendChild(document.createTextNode("Select Event"));
+            select.appendChild(oelem);
+
+            for (let o of slsOptions) {
+                oelem = document.createElement("option");
+                oelem.setAttribute("class", "sls-watch-option");
+                oelem.appendChild(document.createTextNode(o));
+                
+                if (allSelected.includes(o)) {
+                    oelem.setAttribute("disabled", "true");
+                }
+
+                if (event == o) {
+                    oelem.setAttribute("selected", "selected");
+                }
+
+                select.appendChild(oelem);
+            }
+
+            elem.appendChild(select);
+
+            let but = document.createElement("button");
+            but.setAttribute("onclick", `removeSLSInput(${currId})`);
+            but.appendChild(document.createTextNode("-"));
+            elem.appendChild(but)
+
+            document.getElementById("sls-watch-header").appendChild(elem);
+            return false;
+        }
+
+        function removeSLSInput(id) {
+            document.getElementById(`sls-watch-${id}`).remove()
+            refreshSLSInputs();
+        }
+
+        function refreshSLSInputs() {
+            let options = new Array(...slsOptions)
+            let selectedOptions = []
+            for (let elem of document.getElementsByClassName("sls-watch-sel")) {
+                options.splice(options.indexOf(elem.value), 1)
+                selectedOptions.push(elem.value);
+            }
+
+            for (let elem of document.getElementsByClassName("sls-watch-option")) {
+                if (!options.includes(elem.value) && elem.value != elem.parentNode.value) {
+                    elem.disabled = true;
+                }
+            }
+
+            for (let elem of document.getElementsByClassName("sls-watch-sel")) {
+                let disabledOptions = new Array(...elem.childNodes)
+                    .filter(i => i.className == "sls-watch-option" && i.getAttribute("disabled") == "true")
+
+                for (let c of disabledOptions) {
+                    if (c.value != "Select Event" && !selectedOptions.includes(c.value)) {
+                        c.removeAttribute("disabled");
+                    }
+                }
+            }
+        }
+        
+        function saveInputs() {
+            // #   sls: [{event}]
+            // #   google: [{event, folder_id}],
+            obj = {
+                google: [],
+                sls: []
+            }
+            for (let elem of document.getElementsByClassName("google-watch")) {
+                item = {}
+                success = true;
+                for (let e of elem.childNodes) {
+                    if (e.nodeName == "SELECT") {
+                        if (e.value == "Select Event") {
+                            success = false;
+                            break;
+                        }
+                        item.event = e.value;
+                    }
+
+                    if (e.nodeName == "INPUT") {
+                        if (e.value == "") {
+                            success = false;
+                            break;
+                        }
+                        // e.value = "https://drive.google.com/drive/u/1/folders/ID?x=2"
+                        item.folder_id = e.value.split("/")[e.value.split("/").length - 1].split("?")[0];
+                    }
+                }
+                if (success) {
+                    obj.google.push(item)
+                }
+            }
+            for (let elem of document.getElementsByClassName("sls-watch")) {
+                item = {}
+                success = true;
+                for (let e of elem.childNodes) {
+                    if (e.nodeName == "SELECT") {
+                        if (e.value == "Select Event") {
+                            success = false;
+                            break;
+                        }
+                        item.event = e.value;
+                    }
+                }
+                if (success) {
+                    obj.sls.push(item)
+                }
+            }
+            fetch("/save", { method: "POST", mode: "same-origin",  cache: "no-cache", body: JSON.stringify(obj), headers: {
+                "Content-Type": "application/json"
+            }}).then((resp) => {
+                if (resp.status == 204) {
+                    alert("Details saved.")
+                }
+                else if (resp.status == 403) {
+                    alert("Invalid credentials.");
+                }
+                else {
+                    alert("Server error. Try again later.");
+                }
+            })
+
+            return false;
+        }
+    </script>
+    <style>
+        body {
+            font-family: Roboto,RobotoDraft,Helvetica,Arial,sans-serif;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="google">
+        <!-- Google will always be logged in -->
+        <p>Google logged in as: {{ googleLogin['name'] }} </p>
+    </div>
+    <div id="sls-synced">
+        <p>SLS logged in as: {{ slsLogin.get('username') }}</p>
+        <button id="logout-sls" onclick="window.location.href = '/logoutsls'"">Logout from SLS</button>
+    </div>
+
+    <button id="sls-login-btn" onclick="document.getElementById('sls-login').style.display = 'block'">Link SLS account</button>
+    <div id="sls-login" style="display: none;">
+        <div>
+            <span>User ID </span><input id="sls-username" type="text" autocomplete="off">
+        </div>
+        <div>
+            <span>Password </span><input id="sls-password" type="password" autocomplete="off">
+        </div>
+        <div>
+            <button onclick="triggerSLSLogin()">Save Credentials</button>
+        </div>
+    </div>
+    <button id="logout" onclick="window.location.href = '/logout'"">Logout from Google</button>
+    <p>Google</p>
+    <button onclick="createNewGoogleInput()">+</button>
+    <div id="g-watch-header"></div>
+    <br>
+    <p>SLS</p>
+    <button onclick="createNewSLSInput()">+</button>
+    <div id="sls-watch-header"></div>
+    <button type="button" onclick="saveInputs()">Save</button>
+</body>
