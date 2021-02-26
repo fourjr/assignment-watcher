@@ -17,8 +17,8 @@ load_dotenv()
 
 app = flask.Flask(__name__)
 app.db = pymongo.MongoClient(os.environ['MONGO_URI']).assignment_watcher
-if app.env == 'development':
-    os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+# if app.env == 'development':
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 
 @app.route('/dashboard')

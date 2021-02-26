@@ -14,7 +14,7 @@ db = pymongo.MongoClient(os.environ['MONGO_URI']).assignment_watcher
 mail = MailOAuth()
 
 while True:
-    cursor = db.users.find({'$where': '(this.google && this.google.length > 1) || (this.sls && this.sls.length > 1)'})
+    cursor = db.users.find({'$where': '(this.google && this.google.length >= 1) || (this.sls && this.sls.length >= 1)'})
     for u in cursor:
         # SCHEMA:
         # {
@@ -30,7 +30,7 @@ while True:
             try:
                 with SLSHandler(**u['sls_credentials']) as sls:
                     assignments = sls.get_assignments()
-                    assignments = list(filter(lambda x: x.status != AssignmentStatus.COMPLETED and x.id not in u.get('seen_sls', []), assignments))
+                    assignments = list(filter(lambda x: x.status == AssignmentStatus.NEW and x.id not in u.get('seen_sls', []), assignments))
                     for i in assignments:
                         mail.notify(u['email'], 'sls', i)
 
