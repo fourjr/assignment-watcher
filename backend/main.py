@@ -56,5 +56,4 @@ while True:
             if new_ids:
                 db.users.find_one_and_update(u, {'$addToSet': {'seen_google': {'$each': new_ids}}})
 
-    break
     time.sleep(60)
