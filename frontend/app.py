@@ -72,7 +72,7 @@ def login_google():
     )
 
     # TODO: change uri
-    flow.redirect_uri = 'http://localhost:8000/callback'
+    flow.redirect_uri = os.getenv('REDIRECT_URI', 'http://localhost:8000/callback')
 
     authorization_url, _ = flow.authorization_url(
         access_type='offline',

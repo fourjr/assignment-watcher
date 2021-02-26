@@ -105,3 +105,4 @@ class MailOAuth:
         self.service.users().messages().send(userId='me', body={
             'raw': urlsafe_b64encode(message.as_string().encode()).decode()
         }).execute()
+        print(f'{email} - {subject}')
